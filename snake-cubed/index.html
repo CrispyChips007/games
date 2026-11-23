@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#07080d">
+<meta name="color-scheme" content="dark">
 <title>Snake³</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -12,6 +14,7 @@
     --mint:#5ef2d0; --violet:#8b7bff; --coral:#ff6b8a;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  html{background-color:#07080d;color-scheme:dark;overscroll-behavior:none}
   html,body{height:100%;overflow:hidden;background:radial-gradient(120% 90% at 50% 40%,var(--bg1),var(--bg0));color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
   canvas{display:block;position:fixed;inset:0}
   .hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:16px 20px;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.08em}
