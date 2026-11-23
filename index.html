@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Games</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{--bg0:#07080d;--bg1:#11131f;--ink:#e8eaf6;--mute:#8a8fb0;--mint:#5ef2d0;--violet:#8b7bff;--line:rgba(255,255,255,.09)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;background:radial-gradient(120% 90% at 50% 0%,var(--bg1),var(--bg0));color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;padding:56px 20px}
+  main{max-width:720px;margin:0 auto}
+  h1{font-size:48px;font-weight:700;letter-spacing:-.02em;background:linear-gradient(90deg,var(--mint),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--mute);margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:36px}
+  a.card{display:block;text-decoration:none;color:inherit;padding:22px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.03);transition:border-color .2s,transform .2s}
+  a.card:hover{border-color:var(--mint);transform:translateY(-2px)}
+  .card h2{font-size:24px;font-weight:700}
+  .card p{color:var(--mute);margin-top:8px;line-height:1.5;font-size:15px}
+  .tag{display:inline-block;margin-top:14px;font:500 11px 'JetBrains Mono',monospace;letter-spacing:.08em;color:var(--mint);text-transform:uppercase}
+</style>
+</head>
+<body>
+<main>
+  <h1>Games</h1>
+  <div class="sub">Small games, played in the browser</div>
+  <div class="grid">
+    <a class="card" href="snake-cubed/">
+      <h2>Snake³</h2>
+      <p>Classic snake on the six faces of a cube. The cube swings round to follow you.</p>
+      <span class="tag">Play →</span>
+    </a>
+    <a class="card" href="crunch/">
+      <h2>Crunch</h2>
+      <p>A five-dice score challenge inspired by Farkle. Take on Crunchy or race your best run.</p>
+      <span class="tag">Play →</span>
+    </a>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Snake³</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg0:#07080d; --bg1:#11131f; --ink:#e8eaf6; --mute:#8a8fb0;
+    --mint:#5ef2d0; --violet:#8b7bff; --coral:#ff6b8a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:radial-gradient(120% 90% at 50% 40%,var(--bg1),var(--bg0));color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{display:block;position:fixed;inset:0}
+  .hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:16px 20px;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.08em}
+  .hud b{display:block;font-family:'Space Grotesk';font-size:28px;font-weight:700;letter-spacing:0;color:var(--ink)}
+  .hud .lbl{color:var(--mute);text-transform:uppercase}
+  .hud .right{text-align:right}
+  .btn{pointer-events:auto;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--ink);font:500 12px 'JetBrains Mono',monospace;letter-spacing:.06em;padding:8px 12px;border-radius:999px;cursor:pointer;backdrop-filter:blur(6px)}
+  .btn:hover{border-color:var(--mint)}
+  .bottom{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:center;gap:8px;padding:16px;padding-bottom:max(16px,env(safe-area-inset-bottom));pointer-events:none}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(7,8,13,.55);backdrop-filter:blur(3px);transition:opacity .25s}
+  .overlay.hidden{opacity:0;pointer-events:none}
+  .card{text-align:center;max-width:340px;padding:28px}
+  .card h1{font-size:44px;font-weight:700;letter-spacing:-.02em;background:linear-gradient(90deg,var(--mint),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .card p{color:var(--mute);margin-top:10px;line-height:1.5;font-size:15px}
+  .card .go{margin-top:22px;font-size:14px;padding:12px 26px;border-color:var(--mint);color:var(--mint)}
+  .keys{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--mute);margin-top:16px;line-height:1.8}
+  .keys span{color:var(--ink)}
+  .count{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font:700 140px 'Space Grotesk',sans-serif;color:var(--mint);text-shadow:0 0 40px rgba(94,242,208,.45)}
+  .count span{animation:grow 1s ease-out forwards}
+  @keyframes grow{from{transform:scale(.5);opacity:1}to{transform:scale(1.8);opacity:0}}
+  .tapzones{position:fixed;inset:0;display:none;pointer-events:none}
+  .tapzones.on{display:flex}
+  .tapzones div{flex:1;opacity:0}
+  .tapzones div.flash{animation:fl .25s}
+  @keyframes fl{from{opacity:1;background:linear-gradient(90deg,rgba(94,242,208,.07),transparent)}to{opacity:0}}
+  .tapzones div.r.flash{animation:flr .25s}
+  @keyframes flr{from{opacity:1;background:linear-gradient(270deg,rgba(94,242,208,.07),transparent)}to{opacity:0}}
+</style>
+</head>
+<body>
+<div class="tapzones on" id="tapzones"><div class="l"></div><div class="r"></div></div>
+<div class="count" id="count"></div>
+<div class="hud">
+  <div><span class="lbl">Score</span><b id="score">0</b></div>
+  <div class="right"><span class="lbl">Best</span><b id="best">0</b></div>
+</div>
+<div class="bottom">
+  <a class="btn" href="../" style="text-decoration:none">← Games</a>
+    <button class="btn" id="pauseBtn">Pause</button>
+</div>
+<div class="overlay" id="overlay">
+  <div class="card">
+    <h1 id="title">SNAKE³</h1>
+    <p id="msg">Snake on a cube. The cube swings to show where you're headed.</p>
+    <button class="btn go" id="goBtn">Play</button>
+    <div class="keys">
+      <span>Swipe ← →</span> or <span>tap left / right half</span> — turn snake left / right<br>
+      <span>Q / E</span> or <span>← →</span> — turn left / right<br>
+      <span>W A S D</span> — screen direction<br>
+      <span>Space</span> — pause
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const N = 8, H = N / 2;
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const RB = 0.27;          // body radius
+  const LIFT = 0.29;        // centreline height above the face
+
+  // ---------- renderer / scene ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  document.body.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
+  scene.add(cam);
+
+  scene.add(new THREE.AmbientLight(0x8890c0, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 0.9);
+  key.position.set(-30, 50, 20); cam.add(key);
+  const keyTarget = new THREE.Object3D(); scene.add(keyTarget); key.target = keyTarget;
+
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(N, N, N),
+    new THREE.MeshStandardMaterial({ color: 0x161a2a, roughness: 0.85, metalness: 0.1 })));
+  scene.add(new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(N + 0.02, N + 0.02, N + 0.02)),
+    new THREE.LineBasicMaterial({ color: 0x4a538a })));
+  {
+    const pts = [], o = H + 0.01;
+    for (let a = 0; a < 3; a++) for (const s of [-1, 1]) {
+      const b = (a + 1) % 3, c = (a + 2) % 3;
+      for (let k = 1; k < N; k++) {
+        const t = -H + k, p1 = [0,0,0], p2 = [0,0,0], p3 = [0,0,0], p4 = [0,0,0];
+        p1[a] = p2[a] = p3[a] = p4[a] = s * o;
+        p1[b] = t; p1[c] = -H; p2[b] = t; p2[c] = H;
+        p3[c] = t; p3[b] = -H; p4[c] = t; p4[b] = H;
+        pts.push(...p1, ...p2, ...p3, ...p4);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x272c45 })));
+  }
+
+  // ---------- snake body: one continuous tube, rebuilt each frame ----------
+  const RAD = 14;
+  let maxRings = 0, bodyGeo = null;
+  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05, emissive: 0x0e2a2a });
+  const body = new THREE.Mesh(new THREE.BufferGeometry(), bodyMat);
+  body.frustumCulled = false;
+  scene.add(body);
+  function ensureRings(n) {
+    if (n <= maxRings) return;
+    maxRings = Math.ceil(n * 1.5);
+    bodyGeo = new THREE.BufferGeometry();
+    const vc = maxRings * RAD;
+    bodyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
+    bodyGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
+    bodyGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
+    const idx = [];
+    for (let r = 0; r < maxRings - 1; r++) for (let k = 0; k < RAD; k++) {
+      const a = r * RAD + k, b = r * RAD + (k + 1) % RAD, c = a + RAD, d = b + RAD;
+      idx.push(a, b, c, b, d, c);
+    }
+    bodyGeo.setIndex(idx);
+    body.geometry.dispose(); body.geometry = bodyGeo;
+  }
+
+  // ---------- head ----------
+  const head = new THREE.Group(); scene.add(head);
+  const skin = new THREE.MeshStandardMaterial({ color: 0x6ff5d6, emissive: 0x124a40, roughness: 0.35 });
+  const headBall = new THREE.Mesh(new THREE.SphereGeometry(0.42, 28, 20), skin);
+  headBall.scale.set(1, 0.82, 1.08); head.add(headBall);
+  const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x0a0a12, roughness: 0.2 });
+  const blush = new THREE.MeshBasicMaterial({ color: 0xff8fb0, transparent: true, opacity: 0.55 });
+  const eyes = [];
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Group();
+    eye.position.set(side * 0.19, 0.27, 0.2);
+    eye.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 14), white));
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 10), black);
+    eye.add(pupil);
+    head.add(eye);
+    eyes.push({ pupil, off: new THREE.Vector2(), vel: new THREE.Vector2() });
+    const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), blush);
+    cheek.scale.set(1, 0.6, 0.4); cheek.position.set(side * 0.3, 0.0, 0.27); head.add(cheek);
+  }
+  const tongue = new THREE.Group();
+  {
+    const tm = new THREE.MeshStandardMaterial({ color: 0xff3d6e, emissive: 0x5a0a20, roughness: 0.4 });
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.34), tm); stem.position.z = 0.17; tongue.add(stem);
+    for (const s of [-1, 1]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.145), tm);
+      f.position.set(s * 0.045, 0, 0.39); f.rotation.y = s * 0.55; tongue.add(f);
+    }
+    tongue.position.set(0, -0.04, 0.36);
+    head.add(tongue);
+  }
+  let tongueT = 1.5, lastTurn = 0;
+
+  // ---------- food: a berry sitting in its cell, with a glowing tile ----------
+  const foodG = new THREE.Group(); scene.add(foodG);
+  const berryMat = new THREE.MeshStandardMaterial({ color: 0xff6b8a, emissive: 0x8a1c3a, roughness: 0.3 });
+  const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMat);
+  berry.position.y = 0.3; foodG.add(berry);
+  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5ef28a, emissive: 0x0d4a22 }));
+  leaf.scale.set(1.3, 0.35, 0.7); leaf.position.set(0.07, 0.6, 0); leaf.rotation.z = -0.5; foodG.add(leaf);
+  const tile = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94),
+    new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.3, depthWrite: false }));
+  tile.rotation.x = -Math.PI / 2; tile.position.y = 0.02; foodG.add(tile);
+  const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.22, depthTest: false }));
+  ghost.renderOrder = 10; scene.add(ghost);
+
+  // ---------- game state ----------
+  let countdown = 0, shownCount = 0;
+  let snake, dir, foodCell, oldTail, score, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  const queue = [];
+  try { best = +localStorage.getItem('snake-cubed-best') || 0; } catch (e) {}
+  const $ = id => document.getElementById(id);
+  $('best').textContent = best;
+  const keyOf = p => `${Math.round(p.x*2)},${Math.round(p.y*2)},${Math.round(p.z*2)}`;
+
+  function reset() {
+    const n = V(0, 1, 0);
+    snake = [];
+    for (let i = 0; i < 4; i++) snake.push({ p: V(-0.5 - i, H, 0.5), n: n.clone() });
+    oldTail = snake[snake.length - 1];
+    dir = V(1, 0, 0);
+    score = 0; tickMs = 260; acc = 0; queue.length = 0;
+    $('score').textContent = 0;
+    spawnFood();
+    updateCameraTarget(true);
+  }
+
+  function spawnFood() {
+    const occ = new Set(snake.map(s => keyOf(s.p)));
+    for (let tries = 0; tries < 500; tries++) {
+      const a = Math.floor(Math.random() * 3), s = Math.random() < .5 ? -1 : 1, arr = [0, 0, 0];
+      arr[a] = s * H;
+      arr[(a + 1) % 3] = -H + 0.5 + Math.floor(Math.random() * N);
+      arr[(a + 2) % 3] = -H + 0.5 + Math.floor(Math.random() * N);
+      const p = V(...arr), n = V(0, 0, 0); n.setComponent(a, s);
+      if (!occ.has(keyOf(p))) { foodCell = { p, n }; return; }
+    }
+  }
+
+  // ---------- input ----------
+  function push(cmd) { if (queue.length < 3) queue.push(cmd); }
+  function resolve(cmd) {
+    const n = snake[0].n;
+    const left = n.clone().cross(dir), right = dir.clone().cross(n);
+    if (cmd.type === 'rel') return cmd.s < 0 ? left : right;
+    const r = V(1, 0, 0).applyQuaternion(cam.quaternion), u = V(0, 1, 0).applyQuaternion(cam.quaternion);
+    let bestD = null, bestS = 0.2;
+    for (const c of [left, right]) {
+      const sx = c.dot(r), sy = c.dot(u), len = Math.hypot(sx, sy) || 1;
+      const sc = (sx * cmd.v.x + sy * cmd.v.y) / len;
+      if (sc > bestS) { bestS = sc; bestD = c; }
+    }
+    return bestD;
+  }
+  const keyMap = { KeyW:[0,1], KeyS:[0,-1], KeyA:[-1,0], KeyD:[1,0] };
+  addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!alive) start(); else togglePause(); return; }
+    if (keyMap[e.code]) { e.preventDefault(); push({ type: 'screen', v: { x: keyMap[e.code][0], y: keyMap[e.code][1] } }); }
+    else if (['KeyQ','KeyZ','ArrowLeft'].includes(e.code)) { e.preventDefault(); push({ type: 'rel', s: -1 }); }
+    else if (['KeyE','KeyX','ArrowRight'].includes(e.code)) { e.preventDefault(); push({ type: 'rel', s: 1 }); }
+  });
+
+  // One gesture = one turn. Swipe left/right turns that way the moment it passes the
+  // threshold; a touch that never moves far is a tap, judged by screen half on release.
+  const TH = 18, playing = () => alive && !paused && countdown <= 0;
+  let touch = null;
+  function flash(leftSide) {
+    const z = document.querySelector(leftSide ? '#tapzones .l' : '#tapzones .r');
+    z.classList.remove('flash'); void z.offsetWidth; z.classList.add('flash');
+  }
+  addEventListener('touchstart', e => {
+    if (e.target.closest('.btn')) return;
+    const t = e.changedTouches[0];
+    touch = { x: t.clientX, y: t.clientY, id: t.identifier, fired: false, moved: 0 };
+  }, { passive: true });
+  addEventListener('touchmove', e => {
+    if (!touch) return;
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touch.id) continue;
+      const dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+      touch.moved = Math.max(touch.moved, Math.hypot(dx, dy));
+      if (!touch.fired && touch.moved >= TH && Math.abs(dx) > Math.abs(dy) * 0.8) {
+        touch.fired = true;
+        if (playing()) { push({ type: 'rel', s: dx < 0 ? -1 : 1 }); flash(dx < 0); }
+      }
+    }
+  }, { passive: false });
+  addEventListener('touchend', e => {
+    if (!touch) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touch.id) continue;
+      if (!touch.fired && touch.moved < TH && playing()) {
+        const leftSide = t.clientX < innerWidth / 2;
+        push({ type: 'rel', s: leftSide ? -1 : 1 }); flash(leftSide);
+      }
+      touch = null;
+    }
+  });
+
+  $('pauseBtn').onclick = () => alive && togglePause();
+  $('goBtn').onclick = start;
+  function togglePause() {
+    paused = !paused;
+    $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+    showOverlay(paused, 'PAUSED', 'Take a breath.', 'Resume');
+  }
+  function showOverlay(on, t, m, b) {
+    $('overlay').classList.toggle('hidden', !on);
+    if (on) { $('title').textContent = t; $('msg').textContent = m; $('goBtn').textContent = b; }
+  }
+  function start() {
+    if (paused) { togglePause(); return; }
+    reset(); alive = true; showOverlay(false);
+    countdown = 3; shownCount = 0;
+  }
+
+  // ---------- step ----------
+  function step() {
+    const prevDir = dir.clone();
+    while (queue.length) { const d = resolve(queue.shift()); if (d) { dir = d; break; } }
+    if (!dir.equals(prevDir)) lastTurn = prevDir.clone().cross(dir).dot(snake[0].n) > 0 ? -1 : 1;
+    const h = snake[0];
+    let p = h.p.clone().add(dir), n = h.n.clone(), d = dir.clone();
+    if (p.dot(dir) > H) {
+      p = h.p.clone().addScaledVector(dir, 0.5).addScaledVector(h.n, -0.5);
+      n = dir.clone(); d = h.n.clone().negate();
+    }
+    const eat = keyOf(p) === keyOf(foodCell.p);
+    const occ = new Set(snake.slice(0, eat ? snake.length : snake.length - 1).map(s => keyOf(s.p)));
+    if (occ.has(keyOf(p))) return die();
+    snake.unshift({ p, n });
+    dir = d;
+    if (eat) {
+      score++; $('score').textContent = score;
+      tickMs = Math.max(110, tickMs - 4);
+      oldTail = snake[snake.length - 1];
+      spawnFood();
+      tongueT = 0;                         // happy lick
+    } else oldTail = snake.pop();
+    updateCameraTarget(false);
+  }
+  function die() {
+    alive = false;
+    if (score > best) { best = score; $('best').textContent = best; try { localStorage.setItem('snake-cubed-best', best); } catch (e) {} }
+    showOverlay(true, 'GAME OVER', `You scored ${score}.`, 'Again');
+  }
+
+  // ---------- camera ----------
+  let corner = V(1, 1, 1);
+  const targetQ = new THREE.Quaternion(), DIST = 100;
+  function updateCameraTarget(snap) {
+    const n = snake[0].n, c = corner.clone();
+    for (const v of [n, dir]) for (let a = 0; a < 3; a++) { const k = v.getComponent(a); if (k) c.setComponent(a, Math.sign(k)); }
+    corner = c;
+    const curUp = snap ? V(0, 1, 0) : V(0, 1, 0).applyQuaternion(cam.quaternion);
+    let up = null, bd = -2;
+    for (let a = 0; a < 3; a++) for (const s of [-1, 1]) {
+      const ax = V(0, 0, 0); ax.setComponent(a, s);
+      const dd = ax.dot(curUp); if (dd > bd) { bd = dd; up = ax; }
+    }
+    const eye = c.clone().normalize().multiplyScalar(DIST);
+    targetQ.setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, V(0, 0, 0), up));
+    if (snap) cam.quaternion.copy(targetQ);
+  }
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight);
+    const a = innerWidth / innerHeight, half = N * 0.98;
+    if (a >= 1) { cam.top = half; cam.bottom = -half; cam.left = -half * a; cam.right = half * a; }
+    else { cam.left = -half; cam.right = half; cam.top = half / a; cam.bottom = -half / a; }
+    cam.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---------- path geometry ----------
+  const lifted = c => c.p.clone().addScaledVector(c.n, LIFT);
+  // points after cell a up to and including cell b; wraps over an edge if the faces differ
+  function gapPts(a, b) {
+    if (a === b) return [];
+    if (a.n.equals(b.n)) return [lifted(b)];
+    const E = a.p.clone().addScaledVector(b.n, 0.5).addScaledVector(a.n, LIFT).addScaledVector(b.n, LIFT);
+    return [E, lifted(b)];
+  }
+  const clampV = q => V(Math.max(-H, Math.min(H, q.x)), Math.max(-H, Math.min(H, q.y)), Math.max(-H, Math.min(H, q.z)));
+  const surfN = (q, fb) => { const v = q.clone().sub(clampV(q)); return v.lengthSq() > 1e-6 ? v.normalize() : fb; };
+  const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const cHead = new THREE.Color(0x6ff5d6), cTail = new THREE.Color(0x8b7bff), tmpC = new THREE.Color();
+
+  function buildSnake(e) {
+    // polyline: head cell -> ... -> tail cell -> previous tail cell
+    const cells = snake.concat([oldTail]);
+    const P = [lifted(cells[0])], gapEnd = [];
+    for (let k = 0; k < cells.length - 1; k++) { P.push(...gapPts(cells[k], cells[k + 1])); gapEnd.push(P.length - 1); }
+    const cum = [0];
+    for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + P[i].distanceTo(P[i - 1]));
+    const T = cum[cum.length - 1];
+    const g0 = cum[gapEnd[0]];
+    const lastStart = gapEnd.length > 1 ? cum[gapEnd[gapEnd.length - 2]] : 0;
+    const gL = T - lastStart;
+    const s0 = (1 - e) * g0, s1 = T - e * gL;
+    // resample evenly along the visible stretch
+    const STEP = 0.09, pts = [];
+    let seg = 0;
+    const at = s => {
+      while (seg < P.length - 2 && cum[seg + 1] < s) seg++;
+      const span = cum[seg + 1] - cum[seg] || 1;
+      return P[seg].clone().lerp(P[seg + 1], (s - cum[seg]) / span);
+    };
+    for (let s = s0; s < s1; s += STEP) pts.push(at(s));
+    pts.push(at(s1));
+    // round off corners
+    for (let it = 0; it < 3; it++) {
+      for (let i = 1; i < pts.length - 1; i++) pts[i] = pts[i - 1].clone().add(pts[i]).add(pts[i + 1]).multiplyScalar(1 / 3);
+    }
+    const nR = pts.length;
+    ensureRings(nR);
+    const pos = bodyGeo.attributes.position.array, nor = bodyGeo.attributes.normal.array, col = bodyGeo.attributes.color.array;
+    const len = (nR - 1) * STEP, tailLen = Math.min(1.8, len * 0.55);
+    let lastN = snake[0].n.clone(), vi = 0;
+    for (let i = 0; i < nR; i++) {
+      const q = pts[i];
+      const t = pts[Math.min(nR - 1, i + 1)].clone().sub(pts[Math.max(0, i - 1)]).normalize();
+      const sn = surfN(q, lastN); lastN = sn;
+      const B = t.clone().cross(sn).normalize(), Nn = B.clone().cross(t);
+      const s = i * STEP;
+      let r = THREE.MathUtils.lerp(0.34, RB, smooth01(0, 0.75, s));
+      if (s > len - tailLen) r *= 1 - 0.88 * Math.pow((s - (len - tailLen)) / tailLen, 1.3);
+      tmpC.copy(cHead).lerp(cTail, len > 0 ? s / len : 0).multiplyScalar(0.92 + 0.08 * Math.cos(s * 4.2));
+      for (let k = 0; k < RAD; k++) {
+        const th = k / RAD * Math.PI * 2, cx = Math.cos(th), sx = Math.sin(th);
+        const nx = Nn.x * cx + B.x * sx, ny = Nn.y * cx + B.y * sx, nz = Nn.z * cx + B.z * sx;
+        pos[vi] = q.x + nx * r; pos[vi + 1] = q.y + ny * r; pos[vi + 2] = q.z + nz * r;
+        nor[vi] = nx; nor[vi + 1] = ny; nor[vi + 2] = nz;
+        const belly = cx < -0.3 ? 1.12 : 1;     // lighter underside
+        col[vi] = tmpC.r * belly; col[vi + 1] = tmpC.g * belly; col[vi + 2] = tmpC.b * belly;
+        vi += 3;
+      }
+    }
+    bodyGeo.setDrawRange(0, (nR - 1) * RAD * 6);
+    bodyGeo.attributes.position.needsUpdate = bodyGeo.attributes.normal.needsUpdate = bodyGeo.attributes.color.needsUpdate = true;
+    bodyGeo.computeBoundingSphere();
+
+    // head sits on the front of the tube, facing along it
+    const fwd = pts[0].clone().sub(pts[Math.min(3, nR - 1)]).normalize();
+    const up = surfN(pts[0], snake[0].n);
+    const x = up.clone().cross(fwd).normalize(), y = fwd.clone().cross(x);
+    head.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, fwd));
+    head.position.copy(pts[0]).addScaledVector(up, 0.08).addScaledVector(fwd, 0.05);
+  }
+
+  // ---------- loop ----------
+  reset(); alive = false;
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (alive && !paused && countdown > 0) {
+      countdown -= dt;
+      const c = Math.ceil(countdown);
+      if (c !== shownCount) {
+        shownCount = c;
+        $('count').innerHTML = c > 0 ? `<span>${c}</span>` : '';
+        if (c <= 0) { acc = 0; queue.length = 0; }
+      }
+    } else if (alive && !paused) {
+      acc += dt * 1000;
+      while (acc >= tickMs && alive) { acc -= tickMs; step(); }
+    }
+    const e = alive && countdown <= 0 ? Math.min(1, acc / tickMs) : 1;
+
+    cam.quaternion.slerp(targetQ, 1 - Math.exp(-dt * 7));
+    cam.position.set(0, 0, DIST).applyQuaternion(cam.quaternion);
+
+    buildSnake(e);
+
+    // googly pupils: spring back to centre, kicked sideways on turns, jiggle with each step
+    if (lastTurn) { for (const ey of eyes) ey.vel.x += lastTurn * 1.6; lastTurn = 0; }
+    const wig = alive && countdown <= 0 ? Math.sin(e * Math.PI * 2) * 0.25 : 0;
+    for (const ey of eyes) {
+      ey.vel.x += (-ey.off.x * 90 - ey.vel.x * 7) * dt;
+      ey.vel.y += (-ey.off.y * 90 - ey.vel.y * 7 + wig) * dt;
+      ey.off.addScaledVector(ey.vel, dt);
+      if (ey.off.length() > 0.065) ey.off.setLength(0.065);
+      ey.pupil.position.set(ey.off.x, 0.03 + ey.off.y, 0.11);
+    }
+    // tongue flick
+    tongueT += dt;
+    if (tongueT > 2.4 + Math.random() * 2) tongueT = 0;
+    const tf = tongueT < 0.35 ? Math.sin(tongueT / 0.35 * Math.PI) : 0;
+    tongue.visible = tf > 0.02;
+    tongue.scale.set(1, 1, Math.max(0.01, tf));
+    tongue.rotation.y = Math.sin(now / 40) * 0.15 * tf;
+
+    // food: sits on its cell
+    foodG.position.copy(foodCell.p);
+    foodG.quaternion.setFromUnitVectors(V(0, 1, 0), foodCell.n);
+    const pulse = 1 + 0.06 * Math.sin(now / 220);
+    berry.scale.setScalar(pulse);
+    tile.material.opacity = 0.22 + 0.12 * Math.sin(now / 220);
+    ghost.position.copy(foodCell.p).addScaledVector(foodCell.n, 0.3);
+    ghost.visible = foodCell.n.dot(V(0, 0, 1).applyQuaternion(cam.quaternion)) < 0.05;
+
+    renderer.render(scene, cam);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>
