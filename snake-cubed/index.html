@@ -65,19 +65,12 @@
   .count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font:700 140px 'Space Grotesk',sans-serif;color:var(--mint);text-shadow:0 0 40px rgba(94,242,208,.45)}
   .count span{animation:grow 1s ease-out forwards}
   @keyframes grow{from{transform:scale(.5);opacity:1}to{transform:scale(1.8);opacity:0}}
-  .tapzones{position:absolute;inset:0;display:flex;pointer-events:none}
-  .tapzones div{flex:1;opacity:0}
-  .tapzones div.flash{animation:fl .25s}
-  @keyframes fl{from{opacity:1;background:linear-gradient(90deg,rgba(94,242,208,.07),transparent)}to{opacity:0}}
-  .tapzones div.r.flash{animation:flr .25s}
-  @keyframes flr{from{opacity:1;background:linear-gradient(270deg,rgba(94,242,208,.07),transparent)}to{opacity:0}}
 </style>
 </head>
 <body>
 <div class="ad ad-header" data-ad-slot="header" aria-label="Advertisement" hidden></div>
 <div class="main">
   <div id="stage">
-    <div class="tapzones" id="tapzones"><div class="l"></div><div class="r"></div></div>
     <div class="count" id="count"></div>
     <div class="hud">
       <div><span class="lbl">Score</span><b id="score">0</b></div>
@@ -105,6 +98,7 @@
           <li>Eat berries to grow. Don't run into your own body.</li>
           <li>Red berries are worth 100. Rarer blue berries start turning up later and are worth 300.</li>
           <li>The snake slides over the edges of the cube, and the cube turns to show where you're heading.</li>
+          <li>Once your snake is long, a blinking gold berry sometimes appears for a few seconds. It's worth 1,000 and makes you 5 shorter.</li>
           <li>A faint berry glowing through the cube is on a side you can't see yet.</li>
           <li>Every few berries a rock appears. Hitting a rock ends the game too.</li>
           <li>You speed up a little with every berry.</li>
@@ -148,6 +142,9 @@
         red:  { points: 100, grow: 1 },
         blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
       },
+      // Bonus berry: extra to the normal ones. Shows up once the snake is long, blinks,
+      // vanishes after `lifetime` ms of play. Eating it shrinks the snake.
+      gold: { points: 1000, shrink: 5, minLength: 24, lifetime: 8000, chance: 0.35, cooldown: 15000 },
     },
   };
   let modeId = 'classic', mode = MODES[modeId];
@@ -216,7 +213,7 @@
     const hp = snake[0].p, ahead = hp.clone().addScaledVector(dir, 2);
     for (let tries = 0; tries < 500; tries++) {
       const c = randomCell(), k = keyOf(c.p);
-      if (occ.has(k) || rk.has(k) || foods.some(f => keyOf(f.p) === k)) continue;
+      if (occ.has(k) || rk.has(k) || foods.some(f => keyOf(f.p) === k) || (gold && keyOf(gold.p) === k)) continue;
       if (c.p.distanceTo(hp) < 3.2 || c.p.distanceTo(ahead) < 2.5) continue;  // never drop one in your face
       const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.36, 0), rockMat);
       m.position.copy(c.p).addScaledVector(c.n, 0.2);
@@ -291,6 +288,7 @@
   const BERRY_LOOK = {
     red:  { color: 0xff4f6d, emissive: 0x8a1428, size: 1 },
     blue: { color: 0x4da8ff, emissive: 0x123f8a, size: 1 },
+    gold: { color: 0xffcf3d, emissive: 0x8a5e00, size: 1.15 },
   };
   const berryMats = {}, ghostMats = {};
   for (const [k, b] of Object.entries(BERRY_LOOK)) {
@@ -300,7 +298,7 @@
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x5ef28a, emissive: 0x0d4a22 });
   const foodViews = [];
   const maxFood = Math.max(...Object.values(MODES).map(m => m.foodCount));
-  for (let i = 0; i < maxFood; i++) {
+  for (let i = 0; i < maxFood + 1; i++) {          // +1 for the gold berry
     const g = new THREE.Group(); scene.add(g);
     const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMats.red);
     berry.position.y = 0.3; g.add(berry);
@@ -317,7 +315,7 @@
 
   // ---------- game state ----------
   let countdown = 0, shownCount = 0;
-  let snake, dir, foods = [], oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  let snake, dir, foods = [], gold = null, playClock = 0, lastGoldAt = -1e9, oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
@@ -333,7 +331,7 @@
     score = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
     clearRocks();
-    foods = [];
+    foods = []; gold = null; playClock = 0; lastGoldAt = -1e9;
     for (let i = 0; i < mode.foodCount; i++) spawnFood(i);
     updateCameraTarget(true);
   }
@@ -347,13 +345,26 @@
   // Put berry i somewhere free; when possible, on a different face from the other berries
   function spawnFood(i) {
     const others = foods.filter((f, j) => j !== i && f);
-    const occ = new Set(snake.map(c => keyOf(c.p)).concat([...rockKeys()], others.map(f => keyOf(f.p))));
+    const occ = new Set(snake.map(c => keyOf(c.p)).concat([...rockKeys()], others.map(f => keyOf(f.p)), gold ? [keyOf(gold.p)] : []));
     for (let tries = 0; tries < 800; tries++) {
       const c = randomCell();
       if (occ.has(keyOf(c.p))) continue;
       if (tries < 400 && others.some(f => f.n.equals(c.n))) continue;
       c.kind = pickBerryKind(others);
       foods[i] = c; return;
+    }
+  }
+
+  function maybeSpawnGold() {
+    const gc = mode.berries.gold;
+    if (!gc || gold || snake.length < gc.minLength || playClock - lastGoldAt < gc.cooldown || Math.random() >= gc.chance) return;
+    const occ = new Set(snake.map(c => keyOf(c.p)).concat([...rockKeys()], foods.map(f => keyOf(f.p))));
+    const head = snake[0], far = head.n.clone().negate();
+    for (let tries = 0; tries < 500; tries++) {
+      const c = randomCell();
+      if (occ.has(keyOf(c.p)) || c.n.equals(far) || c.p.distanceTo(head.p) < 3) continue;   // reachable in time
+      c.kind = 'gold'; c.left = gc.lifetime;
+      gold = c; lastGoldAt = playClock; return;
     }
   }
 
@@ -385,10 +396,6 @@
   // threshold; a touch that never moves far is a tap, judged by screen half on release.
   const TH = 18, playing = () => alive && !paused && countdown <= 0;
   let touch = null;
-  function flash(leftSide) {
-    const z = document.querySelector(leftSide ? '#tapzones .l' : '#tapzones .r');
-    z.classList.remove('flash'); void z.offsetWidth; z.classList.add('flash');
-  }
   addEventListener('touchstart', e => {
     if (!e.target.closest('#stage') || e.target.closest('.btn, .help')) return;
     const t = e.changedTouches[0];
@@ -403,7 +410,7 @@
       touch.moved = Math.max(touch.moved, Math.hypot(dx, dy));
       if (!touch.fired && touch.moved >= TH && Math.abs(dx) > Math.abs(dy) * 0.8) {
         touch.fired = true;
-        if (playing()) { push({ type: 'rel', s: dx < 0 ? -1 : 1 }); flash(dx < 0); }
+        if (playing()) push({ type: 'rel', s: dx < 0 ? -1 : 1 });
       }
     }
   }, { passive: false });
@@ -414,7 +421,7 @@
       if (!touch.fired && touch.moved < TH && playing()) {
         const rc = stage.getBoundingClientRect();
         const leftSide = t.clientX < rc.left + rc.width / 2;
-        push({ type: 'rel', s: leftSide ? -1 : 1 }); flash(leftSide);
+        push({ type: 'rel', s: leftSide ? -1 : 1 });
       }
       touch = null;
     }
@@ -478,9 +485,10 @@
       p = h.p.clone().addScaledVector(dir, 0.5).addScaledVector(h.n, -0.5);
       n = dir.clone(); d = h.n.clone().negate();
     }
+    const ateGold = gold && keyOf(gold.p) === keyOf(p);
     const ate = foods.findIndex(f => keyOf(f.p) === keyOf(p));
-    const kind = ate >= 0 ? foods[ate].kind : null;
-    if (kind) pendingGrow += mode.berries[kind].grow;
+    const kind = ateGold ? 'gold' : ate >= 0 ? foods[ate].kind : null;
+    if (kind && mode.berries[kind].grow) pendingGrow += mode.berries[kind].grow;
     const growing = pendingGrow > 0;          // tail stays put while growing
     const occ = new Set(snake.slice(0, growing ? snake.length : snake.length - 1).map(s => keyOf(s.p)));
     if ((mode.selfCollision && occ.has(keyOf(p))) || rockKeys().has(keyOf(p))) return die();
@@ -488,9 +496,17 @@
     dir = d;
     if (growing) { pendingGrow--; oldTail = snake[snake.length - 1]; }
     else oldTail = snake.pop();
-    if (kind) {
+    if (ateGold) {
+      addPoints(mode.berries.gold.points, 'gold', p.clone().addScaledVector(n, 0.6));
+      const cut = Math.min(mode.berries.gold.shrink, snake.length - 4);
+      if (cut > 0) { snake.splice(snake.length - cut, cut); oldTail = snake[snake.length - 1]; }
+      pendingGrow = 0;
+      gold = null;
+      tongueT = 0;
+    } else if (kind) {
       eaten++;
       addPoints(mode.berries[kind].points, kind, p.clone().addScaledVector(n, 0.6));
+      maybeSpawnGold();
       tickMs = Math.max(mode.speed.min, tickMs - mode.speed.step);
       spawnFood(ate);
       const r = mode.rocks;
@@ -670,6 +686,8 @@
       }
     } else if (alive && !paused) {
       acc += dt * 1000;
+      playClock += dt * 1000;
+      if (gold && (gold.left -= dt * 1000) <= 0) gold = null;
       while (acc >= tickMs && alive) { acc -= tickMs; step(); }
     }
     const e = alive && countdown <= 0 ? Math.min(1, acc / tickMs) : 1;
@@ -706,8 +724,9 @@
 
     // food: sits on its cell
     const viewDir = V(0, 0, 1).applyQuaternion(cam.quaternion);
-    foodViews.forEach((fv, i) => { const on = i < foods.length; fv.g.visible = on; if (!on) fv.ghost.visible = false; });
-    foods.forEach((fc, i) => {
+    const shown = gold ? foods.concat([gold]) : foods;
+    foodViews.forEach((fv, i) => { const on = i < shown.length; fv.g.visible = on; if (!on) fv.ghost.visible = false; });
+    shown.forEach((fc, i) => {
       const fv = foodViews[i], look = BERRY_LOOK[fc.kind];
       fv.berry.material = berryMats[fc.kind];
       fv.ghost.material = ghostMats[fc.kind];
@@ -720,6 +739,10 @@
       fv.tile.material.opacity = 0.22 + 0.12 * w;
       fv.ghost.position.copy(fc.p).addScaledVector(fc.n, 0.3);
       fv.ghost.visible = fc.n.dot(viewDir) < 0.05;
+      if (fc.kind === 'gold') {                 // blink, faster in the last 3 seconds
+        const period = fc.left > 3000 ? 520 : 220, on = (fc.left % period) > period * 0.3;
+        fv.g.visible = on; fv.ghost.visible = fv.ghost.visible && on;
+      }
     });
 
     renderer.render(scene, cam);
