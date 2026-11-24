@@ -129,7 +129,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.12.0 · 24 Nov 20:42';   // bump on every change
+  const VERSION = 'v0.12.1 · 24 Nov 20:46';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -146,10 +146,10 @@
       berries: {
         red:  { points: 100, grow: 1 },
         blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
+        // Bonus berry: extra to the normal ones. Once the snake reaches minLength it appears after
+        // a random delay, blinks, and vanishes after `lifetime` ms of play. Eating it shrinks the snake.
+        gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, delay: [3000, 10000] },
       },
-      // Bonus berry: extra to the normal ones. Once the snake reaches minLength it appears after
-      // a random delay, blinks, and vanishes after `lifetime` ms of play. Eating it shrinks the snake.
-      gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, delay: [3000, 10000] },
     },
   };
   let modeId = 'classic', mode = MODES[modeId];
