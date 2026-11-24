@@ -35,10 +35,9 @@
   .hud b{display:block;font-family:'Space Grotesk';font-size:28px;font-weight:700;letter-spacing:0;color:var(--ink)}
   .hud .lbl{color:var(--mute);text-transform:uppercase}
   .hud .right{text-align:right}
-  .pop{display:block;font:700 16px 'Space Grotesk',sans-serif;opacity:0;height:20px}
-  .pop.red{color:#ff6b84}.pop.blue{color:#6bb8ff}
-  .pop.go{animation:pop .9s ease-out}
-  @keyframes pop{0%{opacity:0;transform:translateY(6px) scale(.8)}15%{opacity:1;transform:translateY(0) scale(1.15)}70%{opacity:1}100%{opacity:0;transform:translateY(-10px)}}
+  .pts{position:absolute;left:0;top:0;pointer-events:none;font:700 18px 'Space Grotesk',sans-serif;text-shadow:0 2px 8px rgba(0,0,0,.6);animation:rise 1s ease-out forwards;white-space:nowrap}
+  .pts.red{color:#ff7088}.pts.blue{color:#6bb8ff}
+  @keyframes rise{0%{opacity:0;translate:-50% -50%;scale:.6}15%{opacity:1;scale:1.1}100%{opacity:0;translate:-50% calc(-50% - 46px);scale:1}}
   .btn{pointer-events:auto;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--ink);font:500 12px 'JetBrains Mono',monospace;letter-spacing:.06em;padding:8px 12px;border-radius:999px;cursor:pointer;backdrop-filter:blur(6px);text-decoration:none}
   .btn:hover{border-color:var(--mint)}
   .bottom{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:center;gap:8px;padding:14px;pointer-events:none}
@@ -81,7 +80,7 @@
     <div class="tapzones" id="tapzones"><div class="l"></div><div class="r"></div></div>
     <div class="count" id="count"></div>
     <div class="hud">
-      <div><span class="lbl">Score</span><b id="score">0</b><span class="pop" id="pop"></span></div>
+      <div><span class="lbl">Score</span><b id="score">0</b></div>
       <div class="right"><span class="lbl">Best</span><b id="best">0</b></div>
     </div>
     <div class="bottom">
@@ -291,7 +290,7 @@
   // ---------- food: berries sitting in their cells, each with a glowing tile ----------
   const BERRY_LOOK = {
     red:  { color: 0xff4f6d, emissive: 0x8a1428, size: 1 },
-    blue: { color: 0x4da8ff, emissive: 0x123f8a, size: 1.12 },
+    blue: { color: 0x4da8ff, emissive: 0x123f8a, size: 1 },
   };
   const berryMats = {}, ghostMats = {};
   for (const [k, b] of Object.entries(BERRY_LOOK)) {
@@ -318,7 +317,7 @@
 
   // ---------- game state ----------
   let countdown = 0, shownCount = 0;
-  let snake, dir, foods = [], oldTail, score, shownScore = 0, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  let snake, dir, foods = [], oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
@@ -331,7 +330,7 @@
     for (let i = 0; i < 4; i++) snake.push({ p: V(-0.5 - i, H, 0.5), n: n.clone() });
     oldTail = snake[snake.length - 1];
     dir = V(1, 0, 0);
-    score = 0; shownScore = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
+    score = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
     clearRocks();
     foods = [];
@@ -491,7 +490,7 @@
     else oldTail = snake.pop();
     if (kind) {
       eaten++;
-      addPoints(mode.berries[kind].points, kind);
+      addPoints(mode.berries[kind].points, kind, p.clone().addScaledVector(n, 0.6));
       tickMs = Math.max(mode.speed.min, tickMs - mode.speed.step);
       spawnFood(ate);
       const r = mode.rocks;
@@ -500,11 +499,17 @@
     }
     updateCameraTarget(false);
   }
-  function addPoints(pts, kind) {
+  function addPoints(pts, kind, at) {
     score += pts;
-    const el = $('pop');
-    el.textContent = '+' + pts; el.className = 'pop ' + kind;
-    void el.offsetWidth; el.classList.add('go');
+    $('score').textContent = score.toLocaleString();
+    // little number rising from where the berry was
+    const v = at.project(cam), w = stage.clientWidth, h = stage.clientHeight;
+    const el = document.createElement('div');
+    el.className = 'pts ' + kind; el.textContent = pts;
+    el.style.left = ((v.x + 1) / 2 * w) + 'px';
+    el.style.top = ((1 - v.y) / 2 * h) + 'px';
+    stage.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
   }
   function die() {
     alive = false;
@@ -701,11 +706,6 @@
 
     // food: sits on its cell
     const viewDir = V(0, 0, 1).applyQuaternion(cam.quaternion);
-    // score counts up rather than jumping
-    if (shownScore !== score) {
-      shownScore = score - shownScore < 2 ? score : shownScore + Math.max(1, Math.round((score - shownScore) * Math.min(1, dt * 9)));
-      $('score').textContent = shownScore.toLocaleString();
-    }
     foodViews.forEach((fv, i) => { const on = i < foods.length; fv.g.visible = on; if (!on) fv.ghost.visible = false; });
     foods.forEach((fc, i) => {
       const fv = foodViews[i], look = BERRY_LOOK[fc.kind];
