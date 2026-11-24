@@ -129,7 +129,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.12.2 · 24 Nov 20:52';   // bump on every change
+  const VERSION = 'v0.12.3 · 24 Nov 21:50';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -148,7 +148,8 @@
         blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
         // Bonus berry: extra to the normal ones. Once the snake reaches minLength it appears after
         // a random delay, blinks, and vanishes after `lifetime` ms of play. Eating it shrinks the snake.
-        gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 5000, delay: [3000, 10000] },
+        // Missing it means a `missCooldown` ms wait before the next one.
+        gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 5000, delay: [3000, 10000], missCooldown: 15000 },
       },
     },
   };
@@ -698,7 +699,10 @@
     } else if (alive && !paused) {
       acc += dt * 1000;
       playClock += dt * 1000;
-      if (gold && (gold.left -= dt * 1000) <= 0) gold = null;
+      if (gold && (gold.left -= dt * 1000) <= 0) {   // missed it
+        gold = null;
+        goldDue = playClock + mode.berries.gold.missCooldown;
+      }
       updateGold();
       while (acc >= tickMs && alive) { acc -= tickMs; step(); }
     }
