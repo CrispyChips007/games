@@ -35,6 +35,10 @@
   .hud b{display:block;font-family:'Space Grotesk';font-size:28px;font-weight:700;letter-spacing:0;color:var(--ink)}
   .hud .lbl{color:var(--mute);text-transform:uppercase}
   .hud .right{text-align:right}
+  .pop{display:block;font:700 16px 'Space Grotesk',sans-serif;opacity:0;height:20px}
+  .pop.red{color:#ff6b84}.pop.blue{color:#6bb8ff}
+  .pop.go{animation:pop .9s ease-out}
+  @keyframes pop{0%{opacity:0;transform:translateY(6px) scale(.8)}15%{opacity:1;transform:translateY(0) scale(1.15)}70%{opacity:1}100%{opacity:0;transform:translateY(-10px)}}
   .btn{pointer-events:auto;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--ink);font:500 12px 'JetBrains Mono',monospace;letter-spacing:.06em;padding:8px 12px;border-radius:999px;cursor:pointer;backdrop-filter:blur(6px);text-decoration:none}
   .btn:hover{border-color:var(--mint)}
   .bottom{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:center;gap:8px;padding:14px;pointer-events:none}
@@ -77,7 +81,7 @@
     <div class="tapzones" id="tapzones"><div class="l"></div><div class="r"></div></div>
     <div class="count" id="count"></div>
     <div class="hud">
-      <div><span class="lbl">Score</span><b id="score">0</b></div>
+      <div><span class="lbl">Score</span><b id="score">0</b><span class="pop" id="pop"></span></div>
       <div class="right"><span class="lbl">Best</span><b id="best">0</b></div>
     </div>
     <div class="bottom">
@@ -100,6 +104,7 @@
         <h2 id="helpTitle">How to play</h2>
         <ul>
           <li>Eat berries to grow. Don't run into your own body.</li>
+          <li>Red berries are worth 100. Rarer blue berries start turning up later and are worth 300.</li>
           <li>The snake slides over the edges of the cube, and the cube turns to show where you're heading.</li>
           <li>A faint berry glowing through the cube is on a side you can't see yet.</li>
           <li>Every few berries a rock appears. Hitting a rock ends the game too.</li>
@@ -129,6 +134,25 @@
 (() => {
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+  // ---------- game modes ----------
+  // Everything a mode can switch on or off lives here. Set a feature to null to disable it,
+  // e.g. a future "paint the cube" mode could set rocks: null and berries.blue: null.
+  const MODES = {
+    classic: {
+      name: 'Classic',
+      foodCount: 2,                                    // berries on the cube at once
+      speed: { start: 260, min: 110, step: 4 },        // ms per move; step = speed-up per berry (0 = none)
+      selfCollision: true,
+      rocks: { first: 3, every: 4, max: 30 },          // a rock at 3 berries eaten, then every 4
+      berries: {
+        red:  { points: 100, grow: 1 },
+        blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
+      },
+    },
+  };
+  let modeId = 'classic', mode = MODES[modeId];
+  const bestKey = () => `snake-cubed-best-${modeId}-v2`;
   const RB = 0.27;          // body radius
   const LIFT = 0.29;        // centreline height above the face
 
@@ -175,7 +199,6 @@
     new THREE.LineBasicMaterial({ color: 0x4f9a5c })));
 
   // ---------- rocks ----------
-  const ROCK_FIRST = 3, ROCK_EVERY = 4, ROCK_MAX = 30;   // rocks at 3, 7, 11, ... berries
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8f9c, roughness: 0.9, flatShading: true });
   let rocks = [];
   const rockKeys = () => new Set(rocks.map(r => keyOf(r.p)));
@@ -189,7 +212,7 @@
     return { p: V(...arr), n };
   }
   function addRock() {
-    if (rocks.length >= ROCK_MAX) return;
+    if (!mode.rocks || rocks.length >= mode.rocks.max) return;
     const occ = new Set(snake.map(c => keyOf(c.p))), rk = rockKeys();
     const hp = snake[0].p, ahead = hp.clone().addScaledVector(dir, 2);
     for (let tries = 0; tries < 500; tries++) {
@@ -266,32 +289,40 @@
   let tongueT = 1.5, lastTurn = 0;
 
   // ---------- food: berries sitting in their cells, each with a glowing tile ----------
-  const FOOD_COUNT = 2;
-  const berryMat = new THREE.MeshStandardMaterial({ color: 0xff6b8a, emissive: 0x8a1c3a, roughness: 0.3 });
+  const BERRY_LOOK = {
+    red:  { color: 0xff4f6d, emissive: 0x8a1428, size: 1 },
+    blue: { color: 0x4da8ff, emissive: 0x123f8a, size: 1.12 },
+  };
+  const berryMats = {}, ghostMats = {};
+  for (const [k, b] of Object.entries(BERRY_LOOK)) {
+    berryMats[k] = new THREE.MeshStandardMaterial({ color: b.color, emissive: b.emissive, roughness: 0.3 });
+    ghostMats[k] = new THREE.MeshBasicMaterial({ color: b.color, transparent: true, opacity: 0.22, depthTest: false });
+  }
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x5ef28a, emissive: 0x0d4a22 });
-  const ghostMat = new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.22, depthTest: false });
   const foodViews = [];
-  for (let i = 0; i < FOOD_COUNT; i++) {
+  const maxFood = Math.max(...Object.values(MODES).map(m => m.foodCount));
+  for (let i = 0; i < maxFood; i++) {
     const g = new THREE.Group(); scene.add(g);
-    const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMat);
+    const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMats.red);
     berry.position.y = 0.3; g.add(berry);
     const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), leafMat);
     leaf.scale.set(1.3, 0.35, 0.7); leaf.position.set(0.07, 0.6, 0); leaf.rotation.z = -0.5; g.add(leaf);
     const tile = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94),
       new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.3, depthWrite: false }));
     tile.rotation.x = -Math.PI / 2; tile.position.y = 0.02; g.add(tile);
-    const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), ghostMat);
+    const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), ghostMats.red);
     ghost.renderOrder = 10; scene.add(ghost);
+    g.visible = false; ghost.visible = false;
     foodViews.push({ g, berry, tile, ghost, phase: i * 1.7 });
   }
 
   // ---------- game state ----------
   let countdown = 0, shownCount = 0;
-  let snake, dir, foods = [], oldTail, score, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  let snake, dir, foods = [], oldTail, score, shownScore = 0, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
-  try { best = +localStorage.getItem('snake-cubed-best') || 0; } catch (e) {}
+  try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
-  $('best').textContent = best;
+  $('best').textContent = best.toLocaleString();
   const keyOf = p => `${Math.round(p.x*2)},${Math.round(p.y*2)},${Math.round(p.z*2)}`;
 
   function reset() {
@@ -300,14 +331,20 @@
     for (let i = 0; i < 4; i++) snake.push({ p: V(-0.5 - i, H, 0.5), n: n.clone() });
     oldTail = snake[snake.length - 1];
     dir = V(1, 0, 0);
-    score = 0; tickMs = 260; acc = 0; queue.length = 0;
+    score = 0; shownScore = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
     clearRocks();
     foods = [];
-    for (let i = 0; i < FOOD_COUNT; i++) spawnFood(i);
+    for (let i = 0; i < mode.foodCount; i++) spawnFood(i);
     updateCameraTarget(true);
   }
 
+  // Blue berries: only once enough have been eaten, only by chance, and only so many at once
+  function pickBerryKind(others) {
+    const b = mode.berries.blue;
+    if (b && eaten >= b.unlockAt && others.filter(f => f.kind === 'blue').length < b.maxAtOnce && Math.random() < b.chance) return 'blue';
+    return 'red';
+  }
   // Put berry i somewhere free; when possible, on a different face from the other berries
   function spawnFood(i) {
     const others = foods.filter((f, j) => j !== i && f);
@@ -316,6 +353,7 @@
       const c = randomCell();
       if (occ.has(keyOf(c.p))) continue;
       if (tries < 400 && others.some(f => f.n.equals(c.n))) continue;
+      c.kind = pickBerryKind(others);
       foods[i] = c; return;
     }
   }
@@ -441,25 +479,37 @@
       p = h.p.clone().addScaledVector(dir, 0.5).addScaledVector(h.n, -0.5);
       n = dir.clone(); d = h.n.clone().negate();
     }
-    const ate = foods.findIndex(f => keyOf(f.p) === keyOf(p)), eat = ate >= 0;
-    const occ = new Set(snake.slice(0, eat ? snake.length : snake.length - 1).map(s => keyOf(s.p)));
-    if (occ.has(keyOf(p)) || rockKeys().has(keyOf(p))) return die();
+    const ate = foods.findIndex(f => keyOf(f.p) === keyOf(p));
+    const kind = ate >= 0 ? foods[ate].kind : null;
+    if (kind) pendingGrow += mode.berries[kind].grow;
+    const growing = pendingGrow > 0;          // tail stays put while growing
+    const occ = new Set(snake.slice(0, growing ? snake.length : snake.length - 1).map(s => keyOf(s.p)));
+    if ((mode.selfCollision && occ.has(keyOf(p))) || rockKeys().has(keyOf(p))) return die();
     snake.unshift({ p, n });
     dir = d;
-    if (eat) {
-      score++; $('score').textContent = score;
-      tickMs = Math.max(110, tickMs - 4);
-      oldTail = snake[snake.length - 1];
+    if (growing) { pendingGrow--; oldTail = snake[snake.length - 1]; }
+    else oldTail = snake.pop();
+    if (kind) {
+      eaten++;
+      addPoints(mode.berries[kind].points, kind);
+      tickMs = Math.max(mode.speed.min, tickMs - mode.speed.step);
       spawnFood(ate);
-      if (score >= ROCK_FIRST && (score - ROCK_FIRST) % ROCK_EVERY === 0) addRock();
+      const r = mode.rocks;
+      if (r && eaten >= r.first && (eaten - r.first) % r.every === 0) addRock();
       tongueT = 0;                         // happy lick
-    } else oldTail = snake.pop();
+    }
     updateCameraTarget(false);
+  }
+  function addPoints(pts, kind) {
+    score += pts;
+    const el = $('pop');
+    el.textContent = '+' + pts; el.className = 'pop ' + kind;
+    void el.offsetWidth; el.classList.add('go');
   }
   function die() {
     alive = false;
-    if (score > best) { best = score; $('best').textContent = best; try { localStorage.setItem('snake-cubed-best', best); } catch (e) {} }
-    showOverlay(true, 'GAME OVER', `You scored ${score}.`, 'Again');
+    if (score > best) { best = score; $('best').textContent = best.toLocaleString(); try { localStorage.setItem(bestKey(), best); } catch (e) {} }
+    showOverlay(true, 'GAME OVER', `You scored ${score.toLocaleString()}.`, 'Again');
   }
 
   // ---------- camera ----------
@@ -651,12 +701,22 @@
 
     // food: sits on its cell
     const viewDir = V(0, 0, 1).applyQuaternion(cam.quaternion);
+    // score counts up rather than jumping
+    if (shownScore !== score) {
+      shownScore = score - shownScore < 2 ? score : shownScore + Math.max(1, Math.round((score - shownScore) * Math.min(1, dt * 9)));
+      $('score').textContent = shownScore.toLocaleString();
+    }
+    foodViews.forEach((fv, i) => { const on = i < foods.length; fv.g.visible = on; if (!on) fv.ghost.visible = false; });
     foods.forEach((fc, i) => {
-      const fv = foodViews[i];
+      const fv = foodViews[i], look = BERRY_LOOK[fc.kind];
+      fv.berry.material = berryMats[fc.kind];
+      fv.ghost.material = ghostMats[fc.kind];
+      fv.tile.material.color.setHex(look.color);
+      fv.ghost.scale.setScalar(look.size);
       fv.g.position.copy(fc.p);
       fv.g.quaternion.setFromUnitVectors(V(0, 1, 0), fc.n);
       const w = Math.sin(now / 220 + fv.phase);
-      fv.berry.scale.setScalar(1 + 0.06 * w);
+      fv.berry.scale.setScalar(look.size * (1 + 0.06 * w));
       fv.tile.material.opacity = 0.22 + 0.12 * w;
       fv.ghost.position.copy(fc.p).addScaledVector(fc.n, 0.3);
       fv.ghost.visible = fc.n.dot(viewDir) < 0.05;
