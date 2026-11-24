@@ -7,7 +7,7 @@
 <meta name="color-scheme" content="dark">
 <title>Snake³</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600&family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg0:#07080d; --bg1:#11131f; --ink:#e8eaf6; --mute:#8a8fb0;
@@ -72,7 +72,7 @@
   .help kbd{font:500 12px 'JetBrains Mono',monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:1px 6px;color:var(--ink)}
   .help .close{display:block;margin:22px auto 0;border-color:var(--mint);color:var(--mint);padding:10px 26px}
 
-  .count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font:700 140px 'Space Grotesk',sans-serif;color:var(--mint);text-shadow:0 0 40px rgba(94,242,208,.45)}
+  .count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font:600 150px 'Fredoka',sans-serif;color:var(--mint);text-shadow:0 0 40px rgba(94,242,208,.45)}
   .count span{animation:grow 1s ease-out forwards}
   @keyframes grow{from{transform:scale(.5);opacity:1}to{transform:scale(1.8);opacity:0}}
 </style>
@@ -138,7 +138,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.14.1 · 24 Nov 22:16';   // bump on every change
+  const VERSION = 'v0.14.2 · 24 Nov 22:20';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -281,8 +281,16 @@
     eye.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 14), white));
     const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 10), black);
     eye.add(pupil);
+    // X eye for when it's knocked out
+    const xEye = new THREE.Group();
+    for (const r of [0.785, -0.785]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.045, 0.03), black);
+      bar.rotation.z = r; xEye.add(bar);
+    }
+    xEye.position.set(0, 0.05, 0.16); xEye.rotation.x = -0.27; xEye.visible = false;
+    eye.add(xEye);
     head.add(eye);
-    eyes.push({ pupil, off: new THREE.Vector2(), vel: new THREE.Vector2() });
+    eyes.push({ pupil, xEye, off: new THREE.Vector2(), vel: new THREE.Vector2() });
     const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), blush);
     cheek.scale.set(1, 0.6, 0.4); cheek.position.set(side * 0.3, 0.0, 0.27); head.add(cheek);
   }
@@ -794,9 +802,17 @@
     tongueT += dt;
     if (tongueT > 2.4 + Math.random() * 2) tongueT = 0;
     const tf = tongueT < 0.35 ? Math.sin(tongueT / 0.35 * Math.PI) : 0;
-    tongue.visible = tf > 0.02;
-    tongue.scale.set(1, 1, Math.max(0.01, tf));
-    tongue.rotation.y = Math.sin(now / 40) * 0.15 * tf;
+    const ko = dizzy.visible;                    // knocked out: X eyes, tongue hanging out
+    for (const ey of eyes) { ey.pupil.visible = !ko; ey.xEye.visible = ko; }
+    if (ko) {
+      tongue.visible = true;
+      tongue.scale.set(1, 1, 0.55);
+      tongue.rotation.set(0.6, 0, 0);
+    } else {
+      tongue.visible = tf > 0.02;
+      tongue.scale.set(1, 1, Math.max(0.01, tf));
+      tongue.rotation.set(0, Math.sin(now / 40) * 0.15 * tf, 0);
+    }
 
     // rocks pop up with a little overshoot
     for (const r of rocks) {
