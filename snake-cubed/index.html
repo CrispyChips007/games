@@ -51,6 +51,17 @@
   .card p{color:var(--mute);margin-top:10px;line-height:1.5;font-size:16px}
   .card p:empty{display:none}
   .card .actions{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px}
+
+  /* ---- high score celebration ---- */
+  .hud b.beat{color:#ffd45c;text-shadow:0 0 14px rgba(255,212,92,.55)}
+  .toast{position:absolute;left:50%;top:22%;translate:-50% -50%;pointer-events:none;font:700 34px 'Space Grotesk',sans-serif;letter-spacing:.02em;white-space:nowrap;
+    background:linear-gradient(90deg,#ffe27a,#ffb347);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 12px rgba(255,200,80,.5));animation:toast 1.8s ease-out forwards}
+  @keyframes toast{0%{opacity:0;scale:.4}12%{opacity:1;scale:1.18}22%{scale:1}75%{opacity:1}100%{opacity:0;scale:1.05}}
+  .card.record h1{background:linear-gradient(90deg,#ffe27a,#ffb347,#ff7a9c);-webkit-background-clip:text;background-clip:text;font-size:40px;animation:glow 1.6s ease-in-out infinite alternate}
+  @keyframes glow{from{filter:drop-shadow(0 0 4px rgba(255,200,80,.3))}to{filter:drop-shadow(0 0 18px rgba(255,200,80,.7))}}
+  .card.record p{font:700 44px 'Space Grotesk',sans-serif;color:var(--ink);margin-top:6px}
+  .confetti{position:absolute;left:50%;top:40%;width:8px;height:12px;border-radius:2px;pointer-events:none;animation:conf var(--t) cubic-bezier(.15,.7,.4,1) forwards}
+  @keyframes conf{0%{transform:translate(-50%,-50%) rotate(0);opacity:1}100%{transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) rotate(var(--r));opacity:0}}
   .card .ver{margin-top:22px;font:500 11px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#4d5375}
   .card .go{font-size:14px;padding:12px 30px;border-color:var(--mint);color:var(--mint)}
 
@@ -129,7 +140,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.12.4 · 24 Nov 21:51';   // bump on every change
+  const VERSION = 'v0.13.0 · 24 Nov 22:05';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -320,7 +331,7 @@
   }
 
   // ---------- game state ----------
-  let countdown = 0, shownCount = 0;
+  let countdown = 0, shownCount = 0, frozenE = 0, startBest = 0, beatBest = false;
   let snake, dir, foods = [], gold = null, goldDue = null, playClock = 0, oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
@@ -337,7 +348,7 @@
     dir = V(1, 0, 0);
     score = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
-    clearRocks();
+    clearRocks(); frozenE = 0;
     foods = []; gold = null; goldDue = null; playClock = 0;
     for (let i = 0; i < mode.foodCount; i++) spawnFood(i);
     updateCameraTarget(true);
@@ -478,11 +489,12 @@
   }
   function showOverlay(on, t, m, b) {
     $('overlay').classList.toggle('hidden', !on);
-    if (on) { $('title').textContent = t; $('msg').textContent = m; $('goBtn').textContent = b; }
+    if (on) { $('title').textContent = t; $('msg').textContent = m; $('goBtn').textContent = b; $('overlay').querySelector('.card').classList.remove('record'); }
   }
   function start() {
     if (paused) { togglePause(); return; }
     reset(); alive = true; showOverlay(false);
+    startBest = best; beatBest = false; $('best').classList.remove('beat');
     armBackGuard();
     countdown = 3; shownCount = 0;
   }
@@ -530,6 +542,10 @@
   function addPoints(pts, kind, at) {
     score += pts;
     $('score').textContent = score.toLocaleString();
+    if (score > best) {                         // live best, with a fanfare the first time it's passed
+      $('best').textContent = score.toLocaleString(); $('best').classList.add('beat');
+      if (!beatBest && startBest > 0) { beatBest = true; showToast('NEW BEST!'); confetti(40); }
+    }
     // little number rising from where the berry was
     const v = at.project(cam), w = stage.clientWidth, h = stage.clientHeight;
     const el = document.createElement('div');
@@ -540,9 +556,37 @@
     el.addEventListener('animationend', () => el.remove());
   }
   function die() {
-    alive = false;
+    alive = false; frozenE = 1;
+    const record = score > startBest && startBest > 0;
     if (score > best) { best = score; $('best').textContent = best.toLocaleString(); try { localStorage.setItem(bestKey(), best); } catch (e) {} }
-    showOverlay(true, 'GAME OVER', `You scored ${score.toLocaleString()}.`, 'Again');
+    if (record) {
+      showOverlay(true, 'NEW HIGH SCORE', score.toLocaleString(), 'Again');
+      $('overlay').querySelector('.card').classList.add('record');
+      confetti(90);
+    } else {
+      showOverlay(true, 'GAME OVER', `${score.toLocaleString()} · best ${best.toLocaleString()}`, 'Again');
+    }
+  }
+  function confetti(count) {
+    const cols = ['#ffd45c', '#ff7a9c', '#5ef2d0', '#8b7bff', '#4da8ff', '#ffffff'];
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('i');
+      c.className = 'confetti';
+      const a = Math.random() * Math.PI * 2, d = 120 + Math.random() * 260;
+      c.style.background = cols[i % cols.length];
+      c.style.setProperty('--x', Math.cos(a) * d + 'px');
+      c.style.setProperty('--y', Math.sin(a) * d * 0.8 + 140 + 'px');     // burst, then drift down
+      c.style.setProperty('--r', (Math.random() * 900 - 450) + 'deg');
+      c.style.setProperty('--t', (1.1 + Math.random() * 0.9) + 's');
+      stage.appendChild(c);
+      c.addEventListener('animationend', () => c.remove());
+    }
+  }
+  function showToast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast'; el.textContent = text;
+    stage.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
   }
 
   // ---------- camera ----------
@@ -707,7 +751,8 @@
       updateGold();
       while (acc >= tickMs && alive) { acc -= tickMs; step(); }
     }
-    const e = alive && countdown <= 0 ? Math.min(1, acc / tickMs) : 1;
+    // between moves the snake is drawn part-way (e); when not moving, hold it at frozenE
+    const e = alive && countdown <= 0 ? Math.min(1, acc / tickMs) : frozenE;
 
     cam.quaternion.slerp(targetQ, 1 - Math.exp(-dt * 7));
     cam.position.set(0, 0, DIST).applyQuaternion(cam.quaternion);
