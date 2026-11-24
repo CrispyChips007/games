@@ -138,7 +138,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.14.0 · 24 Nov 22:15';   // bump on every change
+  const VERSION = 'v0.14.1 · 24 Nov 22:16';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -564,7 +564,7 @@
     el.addEventListener('animationend', () => el.remove());
   }
   // Crash: freeze, wobble the head with dizzy berries circling it, then show the result
-  const DEATH_PAUSE = 1.6;   // seconds
+  const DEATH_PAUSE = 2.0;   // seconds
   function die() {
     alive = false; frozenE = 1;
     dyingT = DEATH_PAUSE;
@@ -768,14 +768,15 @@
 
     buildSnake(e);
     if (dizzy.visible) {
-      dizzy.rotation.y += dt * 7;
-      dizzy.position.y = 0.68 + Math.sin(now / 160) * 0.04;
+      dizzy.rotation.y += dt * 2.6;                          // berries drift round
+      dizzy.position.y = 0.68 + Math.sin(now / 300) * 0.04;
+      // woozy: the head tilts round in a slow circle rather than shaking
+      const w = now / 1000 * Math.PI * 2 * 0.75, amt = 0.2;
+      head.rotateX(Math.sin(w) * amt);
+      head.rotateZ(Math.cos(w) * amt);
     }
     if (dyingT > 0) {
       dyingT -= dt;
-      const k = Math.max(0, dyingT / DEATH_PAUSE);            // wobble fades out
-      head.rotateY(Math.sin(now / 55) * 0.35 * k);
-      head.rotateZ(Math.sin(now / 80) * 0.18 * k);
       if (dyingT <= 0) finishDeath();
     }
 
