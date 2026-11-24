@@ -129,7 +129,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.12.1 · 24 Nov 20:46';   // bump on every change
+  const VERSION = 'v0.12.2 · 24 Nov 20:52';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -148,7 +148,7 @@
         blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
         // Bonus berry: extra to the normal ones. Once the snake reaches minLength it appears after
         // a random delay, blinks, and vanishes after `lifetime` ms of play. Eating it shrinks the snake.
-        gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, delay: [3000, 10000] },
+        gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 5000, delay: [3000, 10000] },
       },
     },
   };
@@ -751,8 +751,8 @@
       fv.tile.material.opacity = 0.22 + 0.12 * w;
       fv.ghost.position.copy(fc.p).addScaledVector(fc.n, 0.3);
       fv.ghost.visible = fc.n.dot(viewDir) < 0.05;
-      if (fc.kind === 'gold') {                 // blink, faster in the last 3 seconds
-        const period = fc.left > 3000 ? 520 : 220, on = (fc.left % period) > period * 0.3;
+      if (fc.kind === 'gold') {                 // blink, faster in the last 2 seconds
+        const period = fc.left > 2000 ? 520 : 220, on = (fc.left % period) > period * 0.3;
         fv.g.visible = on; fv.ghost.visible = fv.ghost.visible && on;
       }
     });
