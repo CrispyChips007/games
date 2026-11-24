@@ -15,7 +15,7 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{background-color:#07080d;color-scheme:dark;overscroll-behavior:none}
-  html,body{height:100%;overflow:hidden;background:radial-gradient(120% 90% at 50% 40%,var(--bg1),var(--bg0));color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;user-select:none;-webkit-user-select:none}
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none;background:radial-gradient(120% 90% at 50% 40%,var(--bg1),var(--bg0));color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;user-select:none;-webkit-user-select:none}
   body{display:flex;flex-direction:column;height:100vh;height:100dvh}
 
   /* ---- ad slots (same placement as Crunch: header, sidebar on wide screens, below game) ---- */
@@ -336,6 +336,28 @@
   });
 
   $('pauseBtn').onclick = () => alive && togglePause();
+  // A back swipe during a game pauses it instead of leaving the page.
+  // While a game is running there's an extra history entry; going "back" just eats it.
+  let guarded = false;
+  function armBackGuard() {
+    if (guarded) return;
+    try { history.pushState({ snakeGuard: true }, ''); guarded = true; } catch (e) {}
+  }
+  addEventListener('popstate', () => {
+    if (!guarded) return;
+    guarded = false;
+    if (alive) {
+      if (!paused) togglePause();
+      armBackGuard();
+    }
+  });
+  // Swipes that start right at the screen edge are what browsers treat as "back":
+  // claim them for the game where the browser allows it.
+  addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    if (t && e.target.closest('#stage') && !e.target.closest('.btn, .help') &&
+        (t.clientX < 24 || t.clientX > innerWidth - 24)) e.preventDefault();
+  }, { passive: false });
   let helpOpen = false;
   function openHelp() {
     if (alive && !paused) togglePause();
@@ -356,6 +378,7 @@
   function start() {
     if (paused) { togglePause(); return; }
     reset(); alive = true; showOverlay(false);
+    armBackGuard();
     countdown = 3; shownCount = 0;
   }
 
