@@ -53,13 +53,10 @@
   .card .actions{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px}
 
   /* ---- high score celebration ---- */
-  .hud b.beat{color:#ffd45c;text-shadow:0 0 14px rgba(255,212,92,.55)}
-  .toast{position:absolute;left:50%;top:22%;translate:-50% -50%;pointer-events:none;font:700 34px 'Space Grotesk',sans-serif;letter-spacing:.02em;white-space:nowrap;
-    background:linear-gradient(90deg,#ffe27a,#ffb347);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 12px rgba(255,200,80,.5));animation:toast 1.8s ease-out forwards}
-  @keyframes toast{0%{opacity:0;scale:.4}12%{opacity:1;scale:1.18}22%{scale:1}75%{opacity:1}100%{opacity:0;scale:1.05}}
   .card.record h1{background:linear-gradient(90deg,#ffe27a,#ffb347,#ff7a9c);-webkit-background-clip:text;background-clip:text;font-size:40px;animation:glow 1.6s ease-in-out infinite alternate}
   @keyframes glow{from{filter:drop-shadow(0 0 4px rgba(255,200,80,.3))}to{filter:drop-shadow(0 0 18px rgba(255,200,80,.7))}}
-  .card.record p{font:700 44px 'Space Grotesk',sans-serif;color:var(--ink);margin-top:6px}
+  .card.record #msg{font:700 44px 'Space Grotesk',sans-serif;color:var(--ink);margin-top:6px}
+  .card #msg2{font-size:14px;margin-top:4px}
   .confetti{position:absolute;left:50%;top:40%;width:8px;height:12px;border-radius:2px;pointer-events:none;animation:conf var(--t) cubic-bezier(.15,.7,.4,1) forwards}
   @keyframes conf{0%{transform:translate(-50%,-50%) rotate(0);opacity:1}100%{transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) rotate(var(--r));opacity:0}}
   .card .ver{margin-top:22px;font:500 11px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#4d5375}
@@ -99,6 +96,7 @@
       <div class="card">
         <h1 id="title">SNAKE³</h1>
         <p id="msg"></p>
+        <p id="msg2"></p>
         <div class="actions">
           <button class="btn go" id="goBtn">Play</button>
           <button class="btn" id="helpBtn2">How to play</button>
@@ -140,7 +138,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const VERSION = 'v0.13.0 · 24 Nov 22:05';   // bump on every change
+  const VERSION = 'v0.14.0 · 24 Nov 22:15';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -288,6 +286,20 @@
     const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), blush);
     cheek.scale.set(1, 0.6, 0.4); cheek.position.set(side * 0.3, 0.0, 0.27); head.add(cheek);
   }
+  // dizzy berries: little red berries circling above the head after a crash
+  const dizzy = new THREE.Group();
+  {
+    const dm = new THREE.MeshStandardMaterial({ color: 0xff4f6d, emissive: 0x8a1428, roughness: 0.3 });
+    for (let i = 0; i < 3; i++) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), dm);
+      const a = i / 3 * Math.PI * 2;
+      b.position.set(Math.cos(a) * 0.34, 0, Math.sin(a) * 0.34);
+      dizzy.add(b);
+    }
+    dizzy.position.set(0, 0.68, 0);
+    dizzy.visible = false;
+    head.add(dizzy);
+  }
   const tongue = new THREE.Group();
   {
     const tm = new THREE.MeshStandardMaterial({ color: 0xff3d6e, emissive: 0x5a0a20, roughness: 0.4 });
@@ -331,7 +343,7 @@
   }
 
   // ---------- game state ----------
-  let countdown = 0, shownCount = 0, frozenE = 0, startBest = 0, beatBest = false;
+  let countdown = 0, shownCount = 0, frozenE = 0, startBest = 0, dyingT = 0;
   let snake, dir, foods = [], gold = null, goldDue = null, playClock = 0, oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
@@ -348,7 +360,7 @@
     dir = V(1, 0, 0);
     score = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
-    clearRocks(); frozenE = 0;
+    clearRocks(); frozenE = 0; dyingT = 0; dizzy.visible = false;
     foods = []; gold = null; goldDue = null; playClock = 0;
     for (let i = 0; i < mode.foodCount; i++) spawnFood(i);
     updateCameraTarget(true);
@@ -410,7 +422,7 @@
   const keyMap = { KeyW:[0,1], KeyS:[0,-1], KeyA:[-1,0], KeyD:[1,0] };
   addEventListener('keydown', e => {
     if (helpOpen) { if (['Space','Enter','Escape'].includes(e.code)) { e.preventDefault(); closeHelp(); } return; }
-    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!alive) start(); else togglePause(); return; }
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (dyingT > 0) return; if (!alive) start(); else togglePause(); return; }
     if (keyMap[e.code]) { e.preventDefault(); push({ type: 'screen', v: { x: keyMap[e.code][0], y: keyMap[e.code][1] } }); }
     else if (['KeyQ','KeyZ','ArrowLeft'].includes(e.code)) { e.preventDefault(); push({ type: 'rel', s: -1 }); }
     else if (['KeyE','KeyX','ArrowRight'].includes(e.code)) { e.preventDefault(); push({ type: 'rel', s: 1 }); }
@@ -489,12 +501,12 @@
   }
   function showOverlay(on, t, m, b) {
     $('overlay').classList.toggle('hidden', !on);
-    if (on) { $('title').textContent = t; $('msg').textContent = m; $('goBtn').textContent = b; $('overlay').querySelector('.card').classList.remove('record'); }
+    if (on) { $('title').textContent = t; $('msg').textContent = m; $('msg2').textContent = ''; $('goBtn').textContent = b; $('overlay').querySelector('.card').classList.remove('record'); }
   }
   function start() {
     if (paused) { togglePause(); return; }
     reset(); alive = true; showOverlay(false);
-    startBest = best; beatBest = false; $('best').classList.remove('beat');
+    startBest = best;
     armBackGuard();
     countdown = 3; shownCount = 0;
   }
@@ -542,10 +554,6 @@
   function addPoints(pts, kind, at) {
     score += pts;
     $('score').textContent = score.toLocaleString();
-    if (score > best) {                         // live best, with a fanfare the first time it's passed
-      $('best').textContent = score.toLocaleString(); $('best').classList.add('beat');
-      if (!beatBest && startBest > 0) { beatBest = true; showToast('NEW BEST!'); confetti(40); }
-    }
     // little number rising from where the berry was
     const v = at.project(cam), w = stage.clientWidth, h = stage.clientHeight;
     const el = document.createElement('div');
@@ -555,12 +563,19 @@
     stage.appendChild(el);
     el.addEventListener('animationend', () => el.remove());
   }
+  // Crash: freeze, wobble the head with dizzy berries circling it, then show the result
+  const DEATH_PAUSE = 1.6;   // seconds
   function die() {
     alive = false; frozenE = 1;
+    dyingT = DEATH_PAUSE;
+    dizzy.visible = true;
+  }
+  function finishDeath() {
     const record = score > startBest && startBest > 0;
     if (score > best) { best = score; $('best').textContent = best.toLocaleString(); try { localStorage.setItem(bestKey(), best); } catch (e) {} }
     if (record) {
       showOverlay(true, 'NEW HIGH SCORE', score.toLocaleString(), 'Again');
+      $('msg2').textContent = `Previous best ${startBest.toLocaleString()}`;
       $('overlay').querySelector('.card').classList.add('record');
       confetti(90);
     } else {
@@ -581,12 +596,6 @@
       stage.appendChild(c);
       c.addEventListener('animationend', () => c.remove());
     }
-  }
-  function showToast(text) {
-    const el = document.createElement('div');
-    el.className = 'toast'; el.textContent = text;
-    stage.appendChild(el);
-    el.addEventListener('animationend', () => el.remove());
   }
 
   // ---------- camera ----------
@@ -758,6 +767,17 @@
     cam.position.set(0, 0, DIST).applyQuaternion(cam.quaternion);
 
     buildSnake(e);
+    if (dizzy.visible) {
+      dizzy.rotation.y += dt * 7;
+      dizzy.position.y = 0.68 + Math.sin(now / 160) * 0.04;
+    }
+    if (dyingT > 0) {
+      dyingT -= dt;
+      const k = Math.max(0, dyingT / DEATH_PAUSE);            // wobble fades out
+      head.rotateY(Math.sin(now / 55) * 0.35 * k);
+      head.rotateZ(Math.sin(now / 80) * 0.18 * k);
+      if (dyingT <= 0) finishDeath();
+    }
 
     // googly pupils: spring back to centre, kicked sideways on turns, jiggle with each step
     if (lastTurn) { for (const ey of eyes) ey.vel.x += lastTurn * 1.6; lastTurn = 0; }
