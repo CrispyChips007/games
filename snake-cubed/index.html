@@ -175,7 +175,7 @@
     new THREE.LineBasicMaterial({ color: 0x4f9a5c })));
 
   // ---------- rocks ----------
-  const ROCK_EVERY = 3, ROCK_MAX = 30;
+  const ROCK_FIRST = 3, ROCK_EVERY = 4, ROCK_MAX = 30;   // rocks at 3, 7, 11, ... berries
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8f9c, roughness: 0.9, flatShading: true });
   let rocks = [];
   const rockKeys = () => new Set(rocks.map(r => keyOf(r.p)));
@@ -194,7 +194,7 @@
     const hp = snake[0].p, ahead = hp.clone().addScaledVector(dir, 2);
     for (let tries = 0; tries < 500; tries++) {
       const c = randomCell(), k = keyOf(c.p);
-      if (occ.has(k) || rk.has(k) || k === keyOf(foodCell.p)) continue;
+      if (occ.has(k) || rk.has(k) || foods.some(f => keyOf(f.p) === k)) continue;
       if (c.p.distanceTo(hp) < 3.2 || c.p.distanceTo(ahead) < 2.5) continue;  // never drop one in your face
       const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.36, 0), rockMat);
       m.position.copy(c.p).addScaledVector(c.n, 0.2);
@@ -265,24 +265,29 @@
   }
   let tongueT = 1.5, lastTurn = 0;
 
-  // ---------- food: a berry sitting in its cell, with a glowing tile ----------
-  const foodG = new THREE.Group(); scene.add(foodG);
+  // ---------- food: berries sitting in their cells, each with a glowing tile ----------
+  const FOOD_COUNT = 2;
   const berryMat = new THREE.MeshStandardMaterial({ color: 0xff6b8a, emissive: 0x8a1c3a, roughness: 0.3 });
-  const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMat);
-  berry.position.y = 0.3; foodG.add(berry);
-  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8),
-    new THREE.MeshStandardMaterial({ color: 0x5ef28a, emissive: 0x0d4a22 }));
-  leaf.scale.set(1.3, 0.35, 0.7); leaf.position.set(0.07, 0.6, 0); leaf.rotation.z = -0.5; foodG.add(leaf);
-  const tile = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94),
-    new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.3, depthWrite: false }));
-  tile.rotation.x = -Math.PI / 2; tile.position.y = 0.02; foodG.add(tile);
-  const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.22, depthTest: false }));
-  ghost.renderOrder = 10; scene.add(ghost);
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x5ef28a, emissive: 0x0d4a22 });
+  const ghostMat = new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.22, depthTest: false });
+  const foodViews = [];
+  for (let i = 0; i < FOOD_COUNT; i++) {
+    const g = new THREE.Group(); scene.add(g);
+    const berry = new THREE.Mesh(new THREE.SphereGeometry(0.3, 22, 16), berryMat);
+    berry.position.y = 0.3; g.add(berry);
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), leafMat);
+    leaf.scale.set(1.3, 0.35, 0.7); leaf.position.set(0.07, 0.6, 0); leaf.rotation.z = -0.5; g.add(leaf);
+    const tile = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94),
+      new THREE.MeshBasicMaterial({ color: 0xff6b8a, transparent: true, opacity: 0.3, depthWrite: false }));
+    tile.rotation.x = -Math.PI / 2; tile.position.y = 0.02; g.add(tile);
+    const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), ghostMat);
+    ghost.renderOrder = 10; scene.add(ghost);
+    foodViews.push({ g, berry, tile, ghost, phase: i * 1.7 });
+  }
 
   // ---------- game state ----------
   let countdown = 0, shownCount = 0;
-  let snake, dir, foodCell, oldTail, score, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  let snake, dir, foods = [], oldTail, score, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem('snake-cubed-best') || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
@@ -298,19 +303,20 @@
     score = 0; tickMs = 260; acc = 0; queue.length = 0;
     $('score').textContent = 0;
     clearRocks();
-    spawnFood();
+    foods = [];
+    for (let i = 0; i < FOOD_COUNT; i++) spawnFood(i);
     updateCameraTarget(true);
   }
 
-  function spawnFood() {
-    const occ = new Set(snake.map(s => keyOf(s.p)).concat([...rockKeys()]));
-    for (let tries = 0; tries < 500; tries++) {
-      const a = Math.floor(Math.random() * 3), s = Math.random() < .5 ? -1 : 1, arr = [0, 0, 0];
-      arr[a] = s * H;
-      arr[(a + 1) % 3] = -H + 0.5 + Math.floor(Math.random() * N);
-      arr[(a + 2) % 3] = -H + 0.5 + Math.floor(Math.random() * N);
-      const p = V(...arr), n = V(0, 0, 0); n.setComponent(a, s);
-      if (!occ.has(keyOf(p))) { foodCell = { p, n }; return; }
+  // Put berry i somewhere free; when possible, on a different face from the other berries
+  function spawnFood(i) {
+    const others = foods.filter((f, j) => j !== i && f);
+    const occ = new Set(snake.map(c => keyOf(c.p)).concat([...rockKeys()], others.map(f => keyOf(f.p))));
+    for (let tries = 0; tries < 800; tries++) {
+      const c = randomCell();
+      if (occ.has(keyOf(c.p))) continue;
+      if (tries < 400 && others.some(f => f.n.equals(c.n))) continue;
+      foods[i] = c; return;
     }
   }
 
@@ -435,7 +441,7 @@
       p = h.p.clone().addScaledVector(dir, 0.5).addScaledVector(h.n, -0.5);
       n = dir.clone(); d = h.n.clone().negate();
     }
-    const eat = keyOf(p) === keyOf(foodCell.p);
+    const ate = foods.findIndex(f => keyOf(f.p) === keyOf(p)), eat = ate >= 0;
     const occ = new Set(snake.slice(0, eat ? snake.length : snake.length - 1).map(s => keyOf(s.p)));
     if (occ.has(keyOf(p)) || rockKeys().has(keyOf(p))) return die();
     snake.unshift({ p, n });
@@ -444,8 +450,8 @@
       score++; $('score').textContent = score;
       tickMs = Math.max(110, tickMs - 4);
       oldTail = snake[snake.length - 1];
-      spawnFood();
-      if (score % ROCK_EVERY === 0) addRock();
+      spawnFood(ate);
+      if (score >= ROCK_FIRST && (score - ROCK_FIRST) % ROCK_EVERY === 0) addRock();
       tongueT = 0;                         // happy lick
     } else oldTail = snake.pop();
     updateCameraTarget(false);
@@ -644,13 +650,17 @@
     }
 
     // food: sits on its cell
-    foodG.position.copy(foodCell.p);
-    foodG.quaternion.setFromUnitVectors(V(0, 1, 0), foodCell.n);
-    const pulse = 1 + 0.06 * Math.sin(now / 220);
-    berry.scale.setScalar(pulse);
-    tile.material.opacity = 0.22 + 0.12 * Math.sin(now / 220);
-    ghost.position.copy(foodCell.p).addScaledVector(foodCell.n, 0.3);
-    ghost.visible = foodCell.n.dot(V(0, 0, 1).applyQuaternion(cam.quaternion)) < 0.05;
+    const viewDir = V(0, 0, 1).applyQuaternion(cam.quaternion);
+    foods.forEach((fc, i) => {
+      const fv = foodViews[i];
+      fv.g.position.copy(fc.p);
+      fv.g.quaternion.setFromUnitVectors(V(0, 1, 0), fc.n);
+      const w = Math.sin(now / 220 + fv.phase);
+      fv.berry.scale.setScalar(1 + 0.06 * w);
+      fv.tile.material.opacity = 0.22 + 0.12 * w;
+      fv.ghost.position.copy(fc.p).addScaledVector(fc.n, 0.3);
+      fv.ghost.visible = fc.n.dot(viewDir) < 0.05;
+    });
 
     renderer.render(scene, cam);
     requestAnimationFrame(frame);
