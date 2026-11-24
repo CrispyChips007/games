@@ -144,7 +144,7 @@
       },
       // Bonus berry: extra to the normal ones. Shows up once the snake is long, blinks,
       // vanishes after `lifetime` ms of play. Eating it shrinks the snake.
-      gold: { points: 1000, shrink: 5, minLength: 24, lifetime: 8000, chance: 0.35, cooldown: 15000 },
+      gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, chance: 0.35, cooldown: 15000 },
     },
   };
   let modeId = 'classic', mode = MODES[modeId];
@@ -498,7 +498,7 @@
     else oldTail = snake.pop();
     if (ateGold) {
       addPoints(mode.berries.gold.points, 'gold', p.clone().addScaledVector(n, 0.6));
-      const cut = Math.min(mode.berries.gold.shrink, snake.length - 4);
+      const cut = Math.min(mode.berries.gold.shrink, snake.length - mode.berries.gold.shrinkFloor);
       if (cut > 0) { snake.splice(snake.length - cut, cut); oldTail = snake[snake.length - 1]; }
       pendingGrow = 0;
       gold = null;
