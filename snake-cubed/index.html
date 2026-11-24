@@ -142,9 +142,9 @@
         red:  { points: 100, grow: 1 },
         blue: { points: 300, grow: 1, unlockAt: 8, chance: 0.25, maxAtOnce: 1 },
       },
-      // Bonus berry: extra to the normal ones. Shows up once the snake is long, blinks,
-      // vanishes after `lifetime` ms of play. Eating it shrinks the snake.
-      gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, chance: 0.35, cooldown: 15000 },
+      // Bonus berry: extra to the normal ones. Once the snake reaches minLength it appears after
+      // a random delay, blinks, and vanishes after `lifetime` ms of play. Eating it shrinks the snake.
+      gold: { points: 1000, shrink: 5, minLength: 20, shrinkFloor: 14, lifetime: 8000, delay: [3000, 10000] },
     },
   };
   let modeId = 'classic', mode = MODES[modeId];
@@ -315,7 +315,7 @@
 
   // ---------- game state ----------
   let countdown = 0, shownCount = 0;
-  let snake, dir, foods = [], gold = null, playClock = 0, lastGoldAt = -1e9, oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
+  let snake, dir, foods = [], gold = null, goldDue = null, playClock = 0, oldTail, score, eaten = 0, pendingGrow = 0, best = 0, alive = false, paused = false, tickMs, acc = 0;
   const queue = [];
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
@@ -331,7 +331,7 @@
     score = 0; eaten = 0; pendingGrow = 0; tickMs = mode.speed.start; acc = 0; queue.length = 0;
     $('score').textContent = 0;
     clearRocks();
-    foods = []; gold = null; playClock = 0; lastGoldAt = -1e9;
+    foods = []; gold = null; goldDue = null; playClock = 0;
     for (let i = 0; i < mode.foodCount; i++) spawnFood(i);
     updateCameraTarget(true);
   }
@@ -355,16 +355,21 @@
     }
   }
 
-  function maybeSpawnGold() {
+  // Called every frame of play: long enough -> start a random countdown -> drop the gold berry
+  function updateGold() {
     const gc = mode.berries.gold;
-    if (!gc || gold || snake.length < gc.minLength || playClock - lastGoldAt < gc.cooldown || Math.random() >= gc.chance) return;
+    if (!gc || gold) return;
+    if (snake.length < gc.minLength) { goldDue = null; return; }
+    if (goldDue === null) { goldDue = playClock + gc.delay[0] + Math.random() * (gc.delay[1] - gc.delay[0]); return; }
+    if (playClock < goldDue) return;
+    goldDue = null;
     const occ = new Set(snake.map(c => keyOf(c.p)).concat([...rockKeys()], foods.map(f => keyOf(f.p))));
     const head = snake[0], far = head.n.clone().negate();
     for (let tries = 0; tries < 500; tries++) {
       const c = randomCell();
       if (occ.has(keyOf(c.p)) || c.n.equals(far) || c.p.distanceTo(head.p) < 3) continue;   // reachable in time
       c.kind = 'gold'; c.left = gc.lifetime;
-      gold = c; lastGoldAt = playClock; return;
+      gold = c; return;
     }
   }
 
@@ -506,7 +511,6 @@
     } else if (kind) {
       eaten++;
       addPoints(mode.berries[kind].points, kind, p.clone().addScaledVector(n, 0.6));
-      maybeSpawnGold();
       tickMs = Math.max(mode.speed.min, tickMs - mode.speed.step);
       spawnFood(ate);
       const r = mode.rocks;
@@ -688,6 +692,7 @@
       acc += dt * 1000;
       playClock += dt * 1000;
       if (gold && (gold.left -= dt * 1000) <= 0) gold = null;
+      updateGold();
       while (acc >= tickMs && alive) { acc -= tickMs; step(); }
     }
     const e = alive && countdown <= 0 ? Math.min(1, acc / tickMs) : 1;
