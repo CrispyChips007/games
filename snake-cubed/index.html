@@ -50,6 +50,7 @@
   .card p{color:var(--mute);margin-top:10px;line-height:1.5;font-size:16px}
   .card p:empty{display:none}
   .card .actions{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px}
+  .card .ver{margin-top:22px;font:500 11px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#4d5375}
   .card .go{font-size:14px;padding:12px 30px;border-color:var(--mint);color:var(--mint)}
 
   .help{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(7,8,13,.78);backdrop-filter:blur(6px);padding:20px;z-index:5;transition:opacity .2s}
@@ -89,6 +90,7 @@
           <button class="btn go" id="goBtn">Play</button>
           <button class="btn" id="helpBtn2">How to play</button>
         </div>
+        <div class="ver" id="ver"></div>
       </div>
     </div>
     <div class="help hidden" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -125,6 +127,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
+  const VERSION = 'v0.11.0 · 24 Nov 20:30';   // bump on every change
   const N = 8, H = N / 2;
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -320,6 +323,7 @@
   try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) {}
   const $ = id => document.getElementById(id);
   $('best').textContent = best.toLocaleString();
+  $('ver').textContent = VERSION;
   const keyOf = p => `${Math.round(p.x*2)},${Math.round(p.y*2)},${Math.round(p.z*2)}`;
 
   function reset() {
